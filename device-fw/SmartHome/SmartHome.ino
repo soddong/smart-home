@@ -7,43 +7,57 @@
 #include <AM2302-Sensor.h>
 
 /* Port Info */
-#define P_IRsensor    8
-#define P_TempHum     9
-#define DEBUG_LED     10
+#define P_IR_Receiver   8
+#define P_IR_Sender     9
+#define P_TempHum       10
 
 /* Define Macros */
-#define BUF_SIZE      200
-#define DEBUG_DELAY   200
+#define BUF_SIZE        200
+#define IR_DECODE_MODE  false
 
 /* Global Variables */
-int consol_debug_cnt;
-int data_buffer[BUF_SIZE];
-float tmp;
-float hum;
-AM2302::AM2302_Sensor am2302{P_TempHum};
+AM2302::AM2302_Sensor TempHum{P_TempHum};
+volatile int consol_debug_cnt;
+volatile float tmp;
+volatile float hum;
 
 /* Function Prototypes */
-void print_debug();
+void IR_Receiver_Main(void);
+void IR_Sender_Main(const uint16_t[]);
+void TempHum_Main(int);
+void WiFi_Main(void); /* TODO: Need to implement */
+
 void print_decode_info(IRrecv);
 void print_raw_data(IRrecv);
 void handleOverflow();
 
+/*  */
 void setup() {
-  /* Setup Pin Mode */
-  pinMode(DEBUG_LED, OUTPUT);
-
   /* Setup Serial Baud Rate */
   Serial.begin(9600);
   while(!Serial);
 
-  IrReceiver.begin(P_IRsensor);
-  am2302.begin();
+  IrSender.begin(P_IR_Sender);
+  IrReceiver.begin(P_IR_Receiver);
+  TempHum.begin();
 
   printActiveIRProtocols(&Serial);
 }
 
 void loop() {
-  /* Logic for IR decoder */
+  #if IR_DECODE_MODE
+  /* Logic for IR Receiver(Decoder) */
+  IR_Receiver_Main();
+  #endif
+
+  /* Main function for IR Sender */
+  IR_Sender_Main(decoded_on_data_17_raw);
+
+  /* Main function for Temp-Hum Sensor*/
+  TempHum_Main(2000);
+}
+
+void IR_Receiver_Main(){
   if (IrReceiver.decode()){
     if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_WAS_OVERFLOW) {
       handleOverflow();
@@ -58,12 +72,18 @@ void loop() {
       IrReceiver.resume();
     }
   }
+}
 
-  /* Logic for Temp-Hum Sensor */
-  auto status = am2302.read();
+void IR_Sender_Main(const uint16_t ir_signal[]){
+  /* Send Signal with 38KHz */
+  IrSender.sendRaw(ir_signal, sizeof(ir_signal) / sizeof(ir_signal[0]), NEC_KHZ);
+}
 
-  tmp = am2302.get_Temperature();
-  hum = am2302.get_Humidity();
+void TempHum_Main(int sampling_period){
+  auto status = TempHum.read();
+
+  tmp = TempHum.get_Temperature();
+  hum = TempHum.get_Humidity();
 
   Serial.print("Status: ");
   Serial.println(AM2302::AM2302_Sensor::get_sensorState(status));
@@ -71,20 +91,7 @@ void loop() {
   Serial.print(tmp);
   Serial.print(", Hum: ");
   Serial.println(hum);
-  delay(2000);
-
-}
-
-void print_debug(){
-  Serial.println("*********** Debug Code Activates ***********");
-  int cnt = 0;
-  do {
-      digitalWrite(DEBUG_LED, HIGH);
-      delay(DEBUG_DELAY);
-      digitalWrite(DEBUG_LED, LOW);
-      delay(DEBUG_DELAY);
-      cnt++;
-  } while(cnt <= 3);
+  delay(sampling_period);
 }
 
 void print_decode_info(IRrecv irrecv){
@@ -155,6 +162,6 @@ void print_raw_data(IRrecv irrecv){
 }
 
 void handleOverflow() {
-  Serial.println(F("Overflow detected"));
+  Serial.println(F("Overflow detected..."));
   /* Do something... */
 }
