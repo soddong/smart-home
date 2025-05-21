@@ -10,6 +10,7 @@
 #define P_IR_Receiver   8
 #define P_IR_Sender     9
 #define P_TempHum       10
+#define P_IR_Sender_SW  11
 
 /* Define Macros */
 #define BUF_SIZE        200
@@ -31,8 +32,10 @@ void print_decode_info(IRrecv);
 void print_raw_data(IRrecv);
 void handleOverflow();
 
-/*  */
 void setup() {
+  /* Setup Pin Mode */
+  pinMode(P_IR_Sender_SW, INPUT_PULLUP);
+
   /* Setup Serial Baud Rate */
   Serial.begin(9600);
   while(!Serial);
@@ -49,12 +52,14 @@ void loop() {
   /* Logic for IR Receiver(Decoder) */
   IR_Receiver_Main();
   #endif
-
-  /* Main function for IR Sender */
-  IR_Sender_Main(decoded_on_data_17_raw);
-
+  
   /* Main function for Temp-Hum Sensor*/
   TempHum_Main(2000);
+
+  if(digitalRead(P_IR_Sender_SW) == LOW){
+    /* Main function for IR Sender */
+    IR_Sender_Main(decoded_on_data_17_raw);
+  }
 }
 
 void IR_Receiver_Main(){
@@ -76,6 +81,7 @@ void IR_Receiver_Main(){
 
 void IR_Sender_Main(const uint16_t ir_signal[]){
   /* Send Signal with 38KHz */
+  Serial.println("Sending Carrier IR signal...");
   IrSender.sendRaw(ir_signal, sizeof(ir_signal) / sizeof(ir_signal[0]), NEC_KHZ);
 }
 
