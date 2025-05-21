@@ -6,7 +6,7 @@
 /* Include for Temp-Hum */
 #include <AM2302-Sensor.h>
 
-/* Port Info */
+/* Pin Info */
 #define P_IR_Receiver   8
 #define P_IR_Sender     9
 #define P_TempHum       10
@@ -15,6 +15,7 @@
 /* Define Macros */
 #define BUF_SIZE        200
 #define IR_DECODE_MODE  false
+#define TEMP_HUM_OK     0
 
 /* Global Variables */
 AM2302::AM2302_Sensor TempHum{P_TempHum};
@@ -40,24 +41,26 @@ void setup() {
   Serial.begin(9600);
   while(!Serial);
 
+  /* Enable sensors with pin info */
   IrSender.begin(P_IR_Sender);
   IrReceiver.begin(P_IR_Receiver);
   TempHum.begin();
 
+  /* Print IR Info */
   printActiveIRProtocols(&Serial);
 }
 
 void loop() {
+  /* Main function for IR Receiver(Decoder) */
   #if IR_DECODE_MODE
-  /* Logic for IR Receiver(Decoder) */
   IR_Receiver_Main();
   #endif
-  
+
   /* Main function for Temp-Hum Sensor*/
   TempHum_Main(2000);
 
+  /* Main function for IR Sender */
   if(digitalRead(P_IR_Sender_SW) == LOW){
-    /* Main function for IR Sender */
     IR_Sender_Main(decoded_on_data_17_raw);
   }
 }
@@ -68,12 +71,14 @@ void IR_Receiver_Main(){
       handleOverflow();
     }
     else{
-      /* No overflow */
+      /* No overflow here */
       if (IrReceiver.decodedIRData.protocol == UNKNOWN) {
+        /* Print decoded signals */
         Serial.println(F("Received noise or an unknown (or not yet enabled) protocol"));
         print_decode_info(IrReceiver);
         print_raw_data(IrReceiver);
       }
+      /* Prepare for next decoding */
       IrReceiver.resume();
     }
   }
@@ -86,18 +91,19 @@ void IR_Sender_Main(const uint16_t ir_signal[]){
 }
 
 void TempHum_Main(int sampling_period){
-  auto status = TempHum.read();
+  int8_t status = TempHum.read();
+  if(status == AM2302::AM2302_READ_OK){
+    tmp = TempHum.get_Temperature();
+    hum = TempHum.get_Humidity();
 
-  tmp = TempHum.get_Temperature();
-  hum = TempHum.get_Humidity();
-
-  Serial.print("Status: ");
-  Serial.println(AM2302::AM2302_Sensor::get_sensorState(status));
-  Serial.print("Temp: ");
-  Serial.print(tmp);
-  Serial.print(", Hum: ");
-  Serial.println(hum);
-  delay(sampling_period);
+    Serial.print("Status: ");
+    Serial.println(AM2302::AM2302_Sensor::get_sensorState(status));
+    Serial.print("Temp: ");
+    Serial.print(tmp);
+    Serial.print(", Hum: ");
+    Serial.println(hum);
+    delay(sampling_period);
+  }
 }
 
 void print_decode_info(IRrecv irrecv){
