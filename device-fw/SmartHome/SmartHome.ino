@@ -15,7 +15,6 @@
 /* Define Macros */
 #define BUF_SIZE        200
 #define IR_DECODE_MODE  false
-#define TEMP_HUM_OK     0
 
 /* Global Variables */
 AM2302::AM2302_Sensor TempHum{P_TempHum};
