@@ -24,14 +24,14 @@
 /* Global Variables */
 AM2302::AM2302_Sensor TempHum{P_TempHum};
 WiFiClient espClient;
-PubSubClient MqttClient(espClient);
+PubSubClient mqttClient(espClient);
 
 volatile int consol_debug_cnt;
-volatile float tmp;
-volatile float hum;
+volatile int tmp;
+volatile int hum;
 
-const char* ssid = "hiw";
-const char* password = "11111111";
+const char* ssid = "soddong2";
+const char* password = "tvxq1226";
 const char* mqtt_server = "broker.mqtt-dashboard.com";
 
 volatile int value;
@@ -154,26 +154,26 @@ void MQTT_Init(void){
   Serial.println(WiFi.localIP());
 
   /* Setup MQTT as Client */
-  MqttClient.setServer(mqtt_server, MQTT_PORT);
-  MqttClient.setCallback(MQTT_Receive);
+  mqttClient.setServer(mqtt_server, MQTT_PORT);
+  mqttClient.setCallback(MQTT_Receive);
 }
 
 void MQTT_Main(void){
   /* If disconnected */
-  if (!MqttClient.connected()) {
+  if (!mqttClient.connected()) {
     MQTT_Reconnect();
   }
-  MqttClient.loop();
+  mqttClient.loop();
 
   /* Publish Topics */
   volatile unsigned long now = millis();
   if (now - lastMsg_MQTT > 2000) {
     lastMsg_MQTT = now;
     ++value;
-    snprintf (msg, MQTT_BUF_SIZE, "Current Temp Hum : #%lf, #%lf", tmp, hum);
+    snprintf (msg, MQTT_BUF_SIZE, "Current Temp Hum : #%d, #%d", tmp, hum);
     Serial.print(F("Publish message: "));
     Serial.println(F(msg));
-    MqttClient.publish("Starry/Test/Pub", msg);
+    mqttClient.publish("Starry/Test/Pub", msg);
   }
 }
 
@@ -182,7 +182,7 @@ void MQTT_Receive(char* topic, byte* payload, unsigned int length){
   Serial.print(F(topic));
   Serial.print(F("] "));
   for (int i = 0; i < length; i++) {
-    Serial.print(F((char)payload[i]));
+    Serial.print((char)payload[i]);
   }
   Serial.println("");
 
@@ -195,24 +195,22 @@ void MQTT_Receive(char* topic, byte* payload, unsigned int length){
 
 void MQTT_Reconnect(void) {
   // Loop until we're reconnected
-  while (!MqttClient.connected()) {
+  while (!mqttClient.connected()) {
     Serial.print(F("Attempting MQTT connection..."));
     // Create a random client ID
     String clientId = "Client-";
     clientId += String(random(0xffff), HEX);
     // Attempt to connect
-    if (MqttClient.connect(clientId.c_str())) {
+    if (mqttClient.connect(clientId.c_str())) {
       Serial.println(F("connected"));
       // Once connected, publish an announcement...
-      MqttClient.publish("HIW/Test/Output", "hello world");
+      mqttClient.publish("Starry/Test/Pub", "Reconnect");
       // ... and resubscribe
-      MqttClient.subscribe("HIW/Test/Input");
+      mqttClient.subscribe("Starry/Test/Sub");
     } else {
-      Serial.print(F("failed, rc="));
-      Serial.print(MqttClient.state());
-      Serial.println(F("try again in 5 seconds"));
-      // Wait 5 seconds before retrying
-      //delay(5000);
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(F("try again"));
     }
   }
 }
