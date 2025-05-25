@@ -123,7 +123,7 @@ void TempHum_Main(int sampling_period){
       hum = (TempHum.get_Humidity());
 
       Serial.print(F("Status: "));
-      Serial.println(F(AM2302::AM2302_Sensor::get_sensorState(status)));
+      Serial.println(AM2302::AM2302_Sensor::get_sensorState(status));
       Serial.print(F("Temp: "));
       Serial.print(tmp);
       Serial.print(F(", Hum: "));
