@@ -6,6 +6,10 @@
 /* Include for Temp-Hum */
 #include <AM2302-Sensor.h>
 
+/* Include for WiFi */
+#include <WiFi.h>
+#include <PubSubClient.h>
+
 /* Pin Info */
 #define P_IR_Receiver   8
 #define P_IR_Sender     9
@@ -13,22 +17,37 @@
 #define P_IR_Sender_SW  11
 
 /* Define Macros */
-#define BUF_SIZE        200
 #define IR_DECODE_MODE  false
+#define MQTT_PORT       1883
+#define MQTT_BUF_SIZE   50
 
 /* Global Variables */
 AM2302::AM2302_Sensor TempHum{P_TempHum};
+WiFiClient espClient;
+PubSubClient MqttClient(espClient);
+
 volatile int consol_debug_cnt;
 volatile float tmp;
 volatile float hum;
+
+const char* ssid = "hiw";
+const char* password = "11111111";
+const char* mqtt_server = "broker.mqtt-dashboard.com";
+
+volatile int value;
+volatile long lastMsg_MQTT;
+volatile long lastMsg_TMPHUM;
+char msg[MQTT_BUF_SIZE];
 
 /* Function Prototypes */
 void IR_Receiver_Main(void);
 void IR_Sender_Main(const uint16_t[]);
 void TempHum_Main(int);
-void WiFi_Main(void); /* TODO: Need to implement */
+void MQTT_Init(void);
+void MQTT_Main(void);
+void MQTT_Reconnect(void);
+void MQTT_Receive(char*, byte*, unsigned int);
 
-void print_decode_info(IRrecv);
 void print_raw_data(IRrecv);
 void handleOverflow();
 
@@ -44,6 +63,9 @@ void setup() {
   IrSender.begin(P_IR_Sender);
   IrReceiver.begin(P_IR_Receiver);
   TempHum.begin();
+
+  /* Setup MQTT */
+  MQTT_Init();
 
   /* Print IR Info */
   printActiveIRProtocols(&Serial);
@@ -62,9 +84,12 @@ void loop() {
   if(digitalRead(P_IR_Sender_SW) == LOW){
     IR_Sender_Main(decoded_on_data_17_raw);
   }
+
+  /* Main function for MQTT */
+  MQTT_Main();
 }
 
-void IR_Receiver_Main(){
+void IR_Receiver_Main(void){
   if (IrReceiver.decode()){
     if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_WAS_OVERFLOW) {
       handleOverflow();
@@ -74,7 +99,6 @@ void IR_Receiver_Main(){
       if (IrReceiver.decodedIRData.protocol == UNKNOWN) {
         /* Print decoded signals */
         Serial.println(F("Received noise or an unknown (or not yet enabled) protocol"));
-        print_decode_info(IrReceiver);
         print_raw_data(IrReceiver);
       }
       /* Prepare for next decoding */
@@ -85,87 +109,112 @@ void IR_Receiver_Main(){
 
 void IR_Sender_Main(const uint16_t ir_signal[]){
   /* Send Signal with 38KHz */
-  Serial.println("Sending Carrier IR signal...");
+  Serial.println(F("Sending Carrier IR signal..."));
   IrSender.sendRaw(ir_signal, sizeof(ir_signal) / sizeof(ir_signal[0]), NEC_KHZ);
 }
 
 void TempHum_Main(int sampling_period){
-  int8_t status = TempHum.read();
-  if(status == AM2302::AM2302_READ_OK){
-    tmp = TempHum.get_Temperature();
-    hum = TempHum.get_Humidity();
+  unsigned long now = millis();
+  if (now - lastMsg_TMPHUM > sampling_period) {
+    lastMsg_TMPHUM = now;
+    int8_t status = TempHum.read();
+    if(status == AM2302::AM2302_READ_OK){
+      tmp = (TempHum.get_Temperature());
+      hum = (TempHum.get_Humidity());
 
-    Serial.print("Status: ");
-    Serial.println(AM2302::AM2302_Sensor::get_sensorState(status));
-    Serial.print("Temp: ");
-    Serial.print(tmp);
-    Serial.print(", Hum: ");
-    Serial.println(hum);
-    delay(sampling_period);
+      Serial.print(F("Status: "));
+      Serial.println(F(AM2302::AM2302_Sensor::get_sensorState(status)));
+      Serial.print(F("Temp: "));
+      Serial.print(tmp);
+      Serial.print(F(", Hum: "));
+      Serial.println(hum);
+    }
   }
 }
 
-void print_decode_info(IRrecv irrecv){
-  consol_debug_cnt++;
-  Serial.print("*********** Decode Info[");
-  Serial.print(consol_debug_cnt);
-  Serial.println("] ***********");
+void MQTT_Init(void){
+  /* Print Setup Info */
+  Serial.print(F("Connecting to "));
+  Serial.println(F(ssid));
 
-  /* decode_type_t protocol; */
-  Serial.print("Protocol: ");
-  Serial.println(IrReceiver.decodedIRData.protocol);
-  
-  /* uint16_t address; */
-  Serial.print("Address: ");
-  Serial.println(IrReceiver.decodedIRData.address, HEX);
-
-  /* uint16_t command; */
-  Serial.print("Command: ");
-  Serial.println(IrReceiver.decodedIRData.command, HEX);
-
-  /* uint16_t extra; */
-  Serial.print("Extra: ");
-  Serial.println(IrReceiver.decodedIRData.extra, HEX);
-
-  /* IRRawDataType decodedRawData; */
-  Serial.print("Decoded Raw Data: ");
-  Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
-
-  #if defined(DECODE_DISTANCE_WIDTH)
-  /* DistanceWidthTimingInfoStruct DistanceWidthTimingInfo; */
-  //Serial.print("Distance Width Timing Info: ");
-  //Serial.println(IrReceiver.decodedIRData.DistanceWidthTimingInfo, HEX);
-
-  /* IRRawDataType decodedRawDataArray[RAW_DATA_ARRAY_SIZE]; */
-  int rawDataLength = 0;
-  Serial.print("Decoded Raw Data Array: ");
-  for(int idx = 0; idx < IrReceiver.decodedIRData.rawlen; idx++){
-    Serial.print("[");
-    Serial.print(IrReceiver.decodedIRData.decodedRawDataArray[idx], HEX);
-    Serial.print("]");
-    rawDataLength++;
+  /* Try WiFi connection */
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(F("."));
   }
-  Serial.print("\n[Check] Decoded Raw Data Array Length: ");
-  Serial.println(rawDataLength);
-  #endif
 
-  /* uint16_t numberOfBits; */
-  Serial.print("NumberOfBits: ");
-  Serial.println(IrReceiver.decodedIRData.numberOfBits, HEX);
+  /* Get seed from current time */
+  randomSeed(micros());
 
-  /* uint8_t flags; */
-  Serial.print("Flags: ");
-  Serial.println(IrReceiver.decodedIRData.flags, HEX);
+  /* Print WiFi Info */
+  Serial.println("");
+  Serial.println(F("WiFi connected"));
+  Serial.println(F("IP address: "));
+  Serial.println(WiFi.localIP());
 
-  /* IRRawlenType rawlen; */
-  Serial.print("rawlen: ");
-  Serial.println(IrReceiver.decodedIRData.rawlen, HEX);
+  /* Setup MQTT as Client */
+  MqttClient.setServer(mqtt_server, MQTT_PORT);
+  MqttClient.setCallback(MQTT_Receive);
+}
 
-  /* uint16_t initialGapTicks; */
-  Serial.print("initialGapTicks: ");
-  Serial.println(IrReceiver.decodedIRData.initialGapTicks, HEX);
+void MQTT_Main(void){
+  /* If disconnected */
+  if (!MqttClient.connected()) {
+    MQTT_Reconnect();
+  }
+  MqttClient.loop();
 
-  Serial.println("**************************************");
+  /* Publish Topics */
+  volatile unsigned long now = millis();
+  if (now - lastMsg_MQTT > 2000) {
+    lastMsg_MQTT = now;
+    ++value;
+    snprintf (msg, MQTT_BUF_SIZE, "Current Temp Hum : #%lf, #%lf", tmp, hum);
+    Serial.print(F("Publish message: "));
+    Serial.println(F(msg));
+    MqttClient.publish("Starry/Test/Pub", msg);
+  }
+}
+
+void MQTT_Receive(char* topic, byte* payload, unsigned int length){
+  Serial.print(F("Message arrived ["));
+  Serial.print(F(topic));
+  Serial.print(F("] "));
+  for (int i = 0; i < length; i++) {
+    Serial.print(F((char)payload[i]));
+  }
+  Serial.println("");
+
+  if ((char)payload[0] == '1') {
+    /* Do something... */
+  } else {
+    /* Do something... */
+  }
+}
+
+void MQTT_Reconnect(void) {
+  // Loop until we're reconnected
+  while (!MqttClient.connected()) {
+    Serial.print(F("Attempting MQTT connection..."));
+    // Create a random client ID
+    String clientId = "Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (MqttClient.connect(clientId.c_str())) {
+      Serial.println(F("connected"));
+      // Once connected, publish an announcement...
+      MqttClient.publish("HIW/Test/Output", "hello world");
+      // ... and resubscribe
+      MqttClient.subscribe("HIW/Test/Input");
+    } else {
+      Serial.print(F("failed, rc="));
+      Serial.print(MqttClient.state());
+      Serial.println(F("try again in 5 seconds"));
+      // Wait 5 seconds before retrying
+      //delay(5000);
+    }
+  }
 }
 
 void print_raw_data(IRrecv irrecv){
