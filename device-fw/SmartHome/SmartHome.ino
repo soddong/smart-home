@@ -32,11 +32,11 @@ volatile int tmp;
 volatile int hum;
 volatile bool isAcOn = false;
 
-const char* ssid        = SECRET_SSID;
-const char* password    = SECRET_PASS;
+const char* ssid;
+const char* pass;
 const char* mqtt_server = SECRET_SERV;
 
-char msg[MQTT_BUF_SIZE];
+char mqtt_msg[MQTT_BUF_SIZE];
 volatile long lastMsg_MQTT;
 volatile long lastMsg_TMPHUM;
 volatile long lastMsg_IRSignal;
@@ -157,15 +157,25 @@ void TempHum_Main(int sampling_period){
 }
 
 void MQTT_Init(void){
-  /* Print Setup Info */
-  Serial.print(F("Connecting to "));
-  Serial.println(F(ssid));
+  int wifi_idx = 0;
+  while(WiFi.status() != WL_CONNECTED){
+    /* Get WiFi info from list */
+    ssid = secret_ssid[wifi_idx];
+    pass = secret_pass[wifi_idx];
 
-  /* Try WiFi connection */
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(F("."));
+    /* Try to connect WiFi */
+    Serial.print(F("Connecting to "));
+    Serial.println(F(ssid));
+
+    volatile int fail_cnt = 0;
+    while(WiFi.begin(ssid, pass) != WL_CONNECTED){
+      if (fail_cnt == 3) break;
+      fail_cnt++;
+      delay(500);
+      Serial.print(F("."));
+    }
+    Serial.println("");
+    wifi_idx++;
   }
 
   /* Setup Certificate for TLS */
@@ -175,7 +185,6 @@ void MQTT_Init(void){
   randomSeed(micros());
 
   /* Print WiFi Info */
-  Serial.println("");
   Serial.println(F("WiFi connected"));
   Serial.print(F("IP address: "));
   Serial.println(WiFi.localIP());
@@ -196,14 +205,15 @@ void MQTT_Main(void){
   volatile unsigned long now = millis();
   if (now - lastMsg_MQTT > 2000) {
     lastMsg_MQTT = now;
-    snprintf (msg, MQTT_BUF_SIZE, "Current Temp Hum : #%d, #%d", tmp, hum);
+    snprintf (mqtt_msg, MQTT_BUF_SIZE, "Current Temp Hum : #%d, #%d", tmp, hum);
     Serial.print(F("Publish message: "));
-    Serial.println(F(msg));
-    mqttClient.publish("Starry/Pub", msg);
+    Serial.println(F(mqtt_msg));
+    mqttClient.publish("Starry/Pub", mqtt_msg);
   }
 }
 
 void MQTT_Receive(char* topic, byte* payload, unsigned int length){
+  /* Print received MQTT message */
   Serial.print(F("Message arrived ["));
   Serial.print(F(topic));
   Serial.print(F("] "));
@@ -212,6 +222,7 @@ void MQTT_Receive(char* topic, byte* payload, unsigned int length){
   }
   Serial.println("");
 
+  /* Handle received message */
   if ((char)payload[0] == '1') {
     IR_Sender_On();
   } else {
@@ -234,7 +245,7 @@ void MQTT_Reconnect(void) {
       Serial.println(F("connected"));
       // Once connected, publish an announcement...
       mqttClient.publish("Starry/Pub", "Reconnect");
-      // ... and resubscribe
+      // ... and re-subscribe
       mqttClient.subscribe("Starry/Sub");
     } else {
       Serial.print("failed, rc=");
