@@ -84,7 +84,4 @@ const uint16_t decoded_off_data_17_raw[] = {
   550, 1600, 550, 1600, 550
 };
 
-
-
-
 #endif
